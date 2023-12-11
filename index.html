@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://unpkg.com/bsv@1.5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bsv@1.5.0/bsv-message.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bsv@1.5.0/bsv-mnemonic.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bsv@1.5.0/bsv-ecies.min.js"></script>
+    <title>Bitcoin SV Ordinal Protocol</title>
+    <style>
+      body {
+        font-family: sans-serif;
+      }
+      .container {
+        margin: 0 auto;
+        max-width: 800px;
+        word-wrap: break-word;
+      }
+      #header {
+        text-align: center;
+      }
+      #myKeys {
+        margin-top: 20px;
+      }
+      #myKeysForm {
+        display: flex;
+        flex-direction: column;
+      }
+      #myKeysForm label {
+        margin-bottom: 5px;
+      }
+      #currentKeys {
+        margin-top: 20px;
+      }
+      #createOrdinalScript {
+        margin-top: 20px;
+      }
+      #createOrdinalScriptForm {
+        display: flex;
+        flex-direction: column;
+      }
+      #createOrdinalScriptForm label {
+        margin-bottom: 5px;
+      }
+      #scriptResults {
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container" id="header">
+      <h1>Bitcoin SV Ordinal Protocol</h1>
+      <p>
+        Ordinal Protocol is a protocol for storing data on the Bitcoin SV
+        blockchain.
+      </p>
+    </div>
+    <div class="container" id="myKeys">
+      <h2>My Keys</h2>
+      <p>
+        Enter your mnemonic phrase to generate your private key and public key.
+      </p>
+      <form id="myKeysForm">
+        <label for="mnemonic">Mnemonic</label>
+        <input
+          type="text"
+          id="mnemonic"
+          name="mnemonic"
+          placeholder="Enter mnemonic"
+          required
+        />
+        <input type="submit" value="Submit" />
+      </form>
+    </div>
+    <div class="container" id="currentKeys">
+      <h2>Current Keys</h2>
+      <p>BSV: <span id="bsv"></span></p>
+      <p>Mnemonic: <span id="mnemonicString"></span></p>
+      <p>Private Key: <span id="privateKey"></span></p>
+      <p>Public Key: <span id="publicKey"></span></p>
+      <p>Address: <span id="address"></span></p>
+    </div>
+    <div class="container" id="createOrdinalScript">
+      <h2>Create Ordinal Script</h2>
+      <p>
+        Enter the address, protocol, mime type, and data to create an ordinal
+        script.
+      </p>
+      <form id="createOrdinalScriptForm">
+        <label for="address">Address</label>
+        <input
+          type="text"
+          id="address2"
+          name="address"
+          placeholder="Enter address"
+          required
+        />
+        <label for="protocol">Protocol</label>
+        <input
+          type="text"
+          id="protocol"
+          name="protocol"
+          placeholder="Enter protocol"
+          required
+        />
+        <label for="mime">Mime Type</label>
+        <input
+          type="text"
+          id="mime"
+          name="mime"
+          placeholder="Enter mime type"
+          required
+        />
+        <label for="data">Data</label>
+        <input type="text" id="data" name="data" placeholder="Enter data" />
+        <!-- file option -->
+        <input type="file" id="file" name="file" />
+        <input type="submit" value="Submit" />
+      </form>
+    </div>
+    <div class="container" id="addToTx">
+      <h2>Add to Transaction</h2>
+      <button id="addToTxBtn">Add to Transaction</button>
+    </div>
+    <div class="container" id="scriptResults">
+      <h2>Script Results</h2>
+      <p>Script ASM: <span id="scriptASM"></span></p>
+      <p>Script Hex: <span id="scriptHex"></span></p>
+    </div>
+
+    <div class="container" id="finalHex"></div>
+    <script>
+      const Buffer = bsv.deps.Buffer;
+      const Mnemonic = bsv.Mnemonic;
+      const ECIES = bsv.ECIES;
+      const Message = bsv.Message;
+      const path = "m/44'/0'/0'/0/0";
+      const generateKeys = () => {
+        if (localStorage.keys && !confirm("Generate new keys?")) {
+          return;
+        }
+        const Mnemonic = bsv.Mnemonic;
+        const mnemonic = new Mnemonic();
+        const xpriv = mnemonic.toHDPrivateKey(); // HD Private Key
+        const derivedPriv = xpriv.deriveChild(path); // Derive the private key using the full path
+        const priv = derivedPriv.privateKey; // Get the actual private key
+        const pub = bsv.PublicKey.fromPrivateKey(priv); // Derive the public key from the private key
+        const address = bsv.Address.fromPublicKey(pub).toString();
+        const jsonString = JSON.stringify({
+          address: address,
+          privateKey: priv.toString(),
+          publicKey: pub.toString(),
+          mnemonic: mnemonic.toString(),
+        });
+        return jsonString;
+      };
+      const myKeysForm = document.getElementById("myKeysForm");
+      const privateKey = document.getElementById("privateKey");
+      const publicKey = document.getElementById("publicKey");
+      const address = document.getElementById("address");
+      const mnemonicString = document.getElementById("mnemonicString");
+      // check if keys exist in local storage
+      if (!localStorage.getItem("keys")) {
+        const keys = generateKeys();
+        localStorage.setItem("keys", keys);
+      }
+      // get keys from local storage
+      const keys = JSON.parse(localStorage.getItem("keys"));
+      privateKey.innerHTML = keys.privateKey;
+      publicKey.innerHTML = keys.publicKey;
+      address.innerHTML = keys.address;
+      mnemonicString.innerHTML = keys.mnemonic;
+      getBalance(keys.address);
+      document.getElementById("address2").value = keys.address;
+      async function getBalance(address) {
+        // confirmed + unconfirmed
+        const url = `https://api.whatsonchain.com/v1/bsv/main/address/${address}/balance`;
+        const response = await fetch(url);
+        const data = await response.json();
+        const confirmed = data.confirmed;
+        const unconfirmed = data.unconfirmed;
+        const total = confirmed + unconfirmed;
+        document.getElementById("bsv").innerHTML = `Balance: ${total} Satoshis`;
+      }
+      const getUtxos = async (address) => {
+        const url = `https://api.whatsonchain.com/v1/bsv/main/address/${address}/unspent`;
+        const response = await fetch(url);
+        const data = await response.json();
+        return data;
+      };
+      // Modify buildOrdinalScript to handle file input
+      const buildOrdinalScript = async (address, protocol, mime, data) => {
+        const pubkeyhash = bsv.Address(address).hashBuffer;
+        const script = new bsv.Script();
+        script.add(bsv.Opcode.OP_DUP);
+        script.add(bsv.Opcode.OP_HASH160);
+        script.add(Buffer.from(pubkeyhash, "hex"));
+        script.add(bsv.Opcode.OP_EQUALVERIFY);
+        script.add(bsv.Opcode.OP_CHECKSIG);
+        script.add(bsv.Opcode.OP_FALSE);
+        script.add(bsv.Opcode.OP_IF);
+        script.add(Buffer.from(protocol));
+        script.add(bsv.Opcode.OP_1);
+        script.add(Buffer.from(mime));
+        script.add(bsv.Opcode.OP_0);
+
+        if (data instanceof File) {
+          const fileData = await readFileData(data);
+          console.log(fileData);
+          script.add(Buffer.from(fileData));
+        } else {
+          script.add(Buffer.from(data));
+        }
+
+        script.add(bsv.Opcode.OP_ENDIF);
+        console.log(script);
+        const scriptHash = bsv.crypto.Hash.sha256(script.toBuffer());
+        const asm = script.toASM();
+        console.log(script.toHex());
+        return { script: script.toHex(), scriptHash: scriptHash, asm: asm };
+      };
+
+      // Helper function to read file data
+      const readFileData = (file) => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsArrayBuffer(file);
+        });
+      };
+      const buildUnlockingScript = (signature, pubkey) => {
+        const script = new bsv.Script();
+        script.add(Buffer.from(signature, "hex"));
+        script.add(Buffer.from(pubkey, "hex"));
+      };
+      const ordinal1SatoshiOutput = (address, protocol, mime, data) => {
+        const script = buildOrdinalScript(address, protocol, mime, data);
+        const tx = new bsv.Transaction();
+        tx.addOutput(
+          new bsv.Transaction.Output({
+            script: Buffer.from(script, "hex"),
+            satoshis: 1,
+          })
+        );
+        return tx.toString();
+      };
+      //   html elements
+      const createOrdinalScriptForm = document.getElementById(
+        "createOrdinalScriptForm"
+      );
+      const scriptEl = document.getElementById("script");
+      const scriptHex = document.getElementById("scriptHex");
+      const scriptASM = document.getElementById("scriptASM");
+      document.getElementById("mime").value = "text/plain";
+
+      // form submit
+      createOrdinalScriptForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const address = document.getElementById("address2").value;
+        const protocol = document.getElementById("protocol").value;
+        const mime = document.getElementById("mime").value;
+        let data;
+
+        if (mime.includes("text")) {
+          data = document.getElementById("data").value;
+        } else {
+          const fileInput = document.getElementById("file");
+          if (fileInput.files.length > 0) {
+            data = fileInput.files[0];
+          } else {
+            // Handle error: No file selected
+            alert("No file selected");
+            return;
+          }
+        }
+        console.log(address, protocol, mime, data);
+        const scriptResults = await buildOrdinalScript(
+          address,
+          protocol,
+          mime,
+          data
+        );
+        scriptHex.innerHTML = scriptResults.script;
+        scriptASM.innerHTML = scriptResults.asm;
+      });
+      //   onfile load fill mime and clear data
+      const file = document.getElementById("file");
+      file.addEventListener("change", (event) => {
+        console.log(event.target.files[0].type, event.target.files[0]);
+        const mime = event.target.files[0].type;
+        document.getElementById("mime").value = mime;
+        document.getElementById("data").value = ""; //disable data input
+        document.getElementById("data").disabled = true;
+        if (!mime) {
+          document.getElementById("mime").value = "enter mime type";
+          //focus on data
+          document.getElementById("mime").focus();
+        }
+      });
+      //   clear file if data is entered
+      const data = document.getElementById("data");
+      data.addEventListener("click", (event) => {
+        document.getElementById("file").value = "";
+        document.getElementById("file").disabled = true;
+      });
+
+      //import mnemonic
+      myKeysForm.addEventListener("submit", (event) => {
+        if (!confirm("Import new keys?")) {
+          return;
+        }
+        event.preventDefault();
+        const mnemonic = document.getElementById("mnemonic").value;
+        const xpriv = Mnemonic(mnemonic).toHDPrivateKey(); // HD Private Key
+        const derivedPriv = xpriv.deriveChild(path); // Derive the private key using the full path
+        const priv = derivedPriv.privateKey; // Get the actual private key
+        const pub = bsv.PublicKey.fromPrivateKey(priv); // Derive the public key from the private key
+        const address = bsv.Address.fromPublicKey(pub).toString();
+        const jsonString = JSON.stringify({
+          address: address,
+          privateKey: priv.toString(),
+          publicKey: pub.toString(),
+          mnemonic: mnemonic,
+        });
+        localStorage.setItem("keys", jsonString);
+        privateKey.innerHTML = priv.toString();
+        publicKey.innerHTML = pub.toString();
+        address.innerHTML = address;
+        mnemonicString.innerHTML = mnemonic;
+        getBalance(address);
+      });
+
+      //   add to transaction
+      const addToTxBtn = document.getElementById("addToTxBtn");
+      addToTxBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        const address = document.getElementById("address2").value;
+        const protocol = document.getElementById("protocol").value;
+        const mime = document.getElementById("mime").value;
+        let data;
+        if (mime.includes("text")) {
+          data = document.getElementById("data").value;
+        } else {
+          const fileInput = document.getElementById("file");
+          if (fileInput.files.length > 0) {
+            data = fileInput.files[0];
+          } else {
+            // Handle error: No file selected
+            alert("No file selected");
+            return;
+          }
+        }
+        const scriptResults = await buildOrdinalScript(
+          address,
+          protocol,
+          mime,
+          data
+        );
+        const tx = new bsv.Transaction();
+        tx.feePerKb(15);
+        tx.addOutput(
+          new bsv.Transaction.Output({
+            script: Buffer.from(scriptResults.script, "hex"),
+            satoshis: 1,
+          })
+        );
+        let utxos = await getUtxos(address);
+        console.log(utxos);
+        utxos = utxos.filter((utxo) => utxo.value > 1);
+        const utxo = utxos[0];
+        const txid = utxo.tx_hash;
+        const vout = utxo.tx_pos;
+        const value = utxo.value;
+        tx.from({
+          txId: txid,
+          outputIndex: vout,
+          satoshis: value,
+          script: bsv.Script.buildPublicKeyHashOut(address),
+        });
+        tx.change(address);
+        tx.sign(keys.privateKey);
+        const finalHex = tx.toString();
+        document.getElementById("finalHex").innerHTML = finalHex;
+      });
+    </script>
+  </body>
+</html>
