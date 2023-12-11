@@ -200,9 +200,9 @@
         script.add(bsv.Opcode.OP_CHECKSIG);
         script.add(bsv.Opcode.OP_FALSE);
         script.add(bsv.Opcode.OP_IF);
-        script.add(Buffer.from(protocol));
+        script.add(Buffer.from(protocol), "utf8");
         script.add(bsv.Opcode.OP_1);
-        script.add(Buffer.from(mime));
+        script.add(Buffer.from(mime), "utf8");
         script.add(bsv.Opcode.OP_0);
 
         if (data instanceof File) {
@@ -210,7 +210,7 @@
           console.log(fileData);
           script.add(Buffer.from(fileData));
         } else {
-          script.add(Buffer.from(data));
+          script.add(Buffer.from(data), "utf8");
         }
 
         script.add(bsv.Opcode.OP_ENDIF);
